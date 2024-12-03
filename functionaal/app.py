@@ -1,6 +1,6 @@
 import tkinter as tk
 
-import functional
+import functionaal.control
 
 
 

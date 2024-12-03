@@ -30,6 +30,7 @@ class ParentControl:
         self.user = user
         self.password = password
         self.blocked_sites = set()  # Сохраняем только домены
+        self.internet_disabled = False
 
     def start_blocking(self) -> None:
         """
@@ -94,6 +95,37 @@ class ParentControl:
             print("Заблокированные сайты:")
             for site in self.blocked_sites:
                 print(f"- {site}")
+                
+    def disable_internet(self) -> None:
+        """
+        Отключает интернет, блокируя весь сетевой трафик.
+        """
+        if self.internet_disabled:
+            print("Интернет уже отключён.")
+            return
+
+        self.internet_disabled = True
+        print("Интернет отключён. Перехватываю все пакеты...")
+
+        try:
+            with pydivert.WinDivert("true") as w:  # Перехват всех пакетов
+                for packet in w:
+                    if not self.internet_disabled:
+                        break  # Если интернет включён, прекращаем блокировку
+                    # Пакеты просто игнорируются
+        except Exception as e:
+            print(f"Ошибка при отключении интернета: {e}")
+
+    def enable_internet(self) -> None:
+        """
+        Включает интернет, разблокируя сетевой трафик.
+        """
+        if not self.internet_disabled:
+            print("Интернет уже включён.")
+            return
+
+        self.internet_disabled = False
+        print("Интернет включён.")
 
 
 if __name__ == "__main__":
@@ -109,5 +141,3 @@ if __name__ == "__main__":
     # Запускаем блокировку
     control.start_blocking()
 
-
-    # Перехватываем трафик и блокируем доступ к заблокированным сайтам
