@@ -3,6 +3,10 @@ import socket
 import psutil
 import os
 import time
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+from email.mime.multipart import MIMEMultipart
 from googleapiclient.discovery import build 
 from google_auth_oauthlib.flow import InstalledAppFlow
 from datetime import datetime, timedelta
@@ -20,7 +24,7 @@ from tkinter import filedialog
 # 2) Написать метод выключающий интернет(Делаем с помощью библиотеки pydivert,почитать)
         #Сделано Работает
 # 3) Написать метод дающий опредленное время проведение за компьютером,а потом бы вылазила табличка просящая пароль ,иначе не продолжиать(tkinter,datetime,ctypes,pyautogui,psutil).
-# 4) Написать метод отправляющий на почту или Тг сообщение о том что сеанс начался ,либо же об установке каких-то приложений на пк или посещение сайтов(smtplib для почт и надо еще написать telegramm бота чтобы на него приходили уведомления).
+# 4) Написать метод отправляющий на почту или Тг сообщение о том что сеанс начался (smtplib для почт и надо еще написать telegramm бота чтобы на него приходили уведомления).
 # 5) Методы показывающие Историю поиска на ютубе за день/неделю и удаления ее через определенное время(Библиотеки:google-api-python-client, oauth2client)
     #Метод показывающий историю за день
     #Метод показывающий историю за неделю 
@@ -38,6 +42,8 @@ class ParentControl:
         self.blocked_applications = set() # Множество заблокированных приложения
         self.internet_disabled = False # флаг для включения и выключения интернета
         self.check_interval = check_interval
+        self.sender_email = "alexvolkov082004@gmail.com"
+        self.sender_password = "taugsshrahdbzkto"
 
     def start_blocking(self) -> None:
         """
@@ -185,7 +191,25 @@ class ParentControl:
                         print(f"Приложение {process.info['name']} завершено.")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue  
-            time.sleep(self.check_interval)  
+            time.sleep(self.check_interval)
+
+    def send_email(self,recent_email:str,smtp_server:str,smtp_port:int)->None:
+        try:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            subject = "Уведомление: Начало сеанса"
+            body = f"Сеанс пользователя начался в {now}."
+            message = MIMEMultipart()
+            message['From'] = self.sender_email
+            message['To'] = recent_email
+            message['Subject'] = subject
+            message.attach(MIMEText(body, 'plain'))
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+            server.login(self.sender_email, self.sender_password)
+            server.send_message(message)
+            server.quit()
+            print("Уведомление успешно отправлено.")
+        except Exception as e:
+            print(f"Ошибка при отправке уведомления: {e}")
 
 
 if __name__ == "__main__":
@@ -194,12 +218,13 @@ if __name__ == "__main__":
 
     # Добавляем сайты в список блокировки
     control.add_site("habr.com")
-    control.select_and_add_application()
+    #control.select_and_add_application()
     control.show_appplications()
 
     # Отображаем список заблокированных сайтов
     control.show_blocked_sites()
 
     # Запускаем блокировку
-    control.block_applications()
+    control.send_email(recent_email='epra11111@mail.ru',smtp_server='smtp.gmail.com',smtp_port=465)
+
 
