@@ -23,7 +23,7 @@ from tkinter import filedialog
         
 # 2) Написать метод выключающий интернет(Делаем с помощью библиотеки pydivert,почитать)
         #Сделано Работает
-# 3) Написать метод дающий опредленное время проведение за компьютером,а потом бы вылазила табличка просящая пароль ,иначе не продолжиать(tkinter,datetime,ctypes,pyautogui,psutil).
+# 3) Написать метод дающий опредленное время проведение за компьютером,а потом бы вылазила табличка просящая пароль ,иначе не продолжиать(tkinter,datetime,ctypes,pyautogui,psutil)это в приложении.
 # 4) Написать метод отправляющий на почту или Тг сообщение о том что сеанс начался (smtplib для почт и надо еще написать telegramm бота чтобы на него приходили уведомления).
 # 5) Методы показывающие Историю поиска на ютубе за день/неделю и удаления ее через определенное время(Библиотеки:google-api-python-client, oauth2client)
     #Метод показывающий историю за день
@@ -39,11 +39,18 @@ class ParentControl:
         self.user = user
         self.password = password
         self.blocked_sites = set()  # Множество заблокированных сайтов
-        self.blocked_applications = set() # Множество заблокированных приложения
-        self.internet_disabled = False # флаг для включения и выключения интернета
-        self.check_interval = check_interval
+        self.blocked_applications = set()  # Множество заблокированных приложений
+        self.internet_disabled = False  # Флаг для включения и выключения интернета
+        self.check_interval = check_interval  # Интервал проверки
         self.sender_email = "alexvolkov082004@gmail.com"
         self.sender_password = "taugsshrahdbzkto"
+        self.active_processes = {}  # Для отслеживания активных процессов
+        self.log_file = "activity_log.txt"  # Файл для записи активности пользователя
+        self.system_processes = {
+            "System Idle Process", "System", "Registry", "smss.exe",
+            "csrss.exe", "wininit.exe", "services.exe", "lsass.exe",
+            "svchost.exe", "explorer.exe", "SearchUI.exe"
+        }
 
     def start_blocking(self) -> None:
         """
@@ -211,6 +218,57 @@ class ParentControl:
         except Exception as e:
             print(f"Ошибка при отправке уведомления: {e}")
 
+    def monitor_activity(self) -> None:
+        """
+        Запускает мониторинг активности пользователя.
+        """
+        try:
+            print("Начинается мониторинг активности пользователя...")
+            while True:
+                current_processes = {p.pid: p.info for p in psutil.process_iter(['pid', 'name', 'create_time'])}
+
+                # Проверяем новые процессы
+                for pid, info in current_processes.items():
+                    if pid not in self.active_processes and info['name'] not in self.system_processes:
+                        self.active_processes[pid] = info
+                        self.log_process_start(info)
+
+                # Проверяем завершённые процессы
+                ended_processes = set(self.active_processes.keys()) - set(current_processes.keys())
+                for pid in ended_processes:
+                    if self.active_processes[pid]['name'] not in self.system_processes:
+                        self.log_process_end(self.active_processes[pid])
+                    del self.active_processes[pid]
+
+                time.sleep(self.check_interval)  # Ждём заданный интервал
+        except KeyboardInterrupt:
+            print("Мониторинг завершён.")
+
+    def log_process_start(self, info) -> None:
+        """
+        Логирует запуск нового процесса.
+        """
+        start_time = datetime.fromtimestamp(info['create_time']).strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{start_time}] Запуск: {info['name']} (PID: {info['pid']})\n"
+        print(log_entry.strip())
+        self.write_to_log(log_entry)
+
+    def log_process_end(self, info) -> None:
+        """
+        Логирует завершение процесса.
+        """
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{end_time}] Завершение: {info['name']} (PID: {info['pid']})\n"
+        print(log_entry.strip())
+        self.write_to_log(log_entry)
+
+    def write_to_log(self, log_entry) -> None:
+        """
+        Записывает лог в файл.
+        """
+        with open(self.log_file, "a", encoding="utf-8") as log:
+            log.write(log_entry)
+
 
 if __name__ == "__main__":
     # Создаём экземпляр класса ParentControl
@@ -223,8 +281,8 @@ if __name__ == "__main__":
 
     # Отображаем список заблокированных сайтов
     control.show_blocked_sites()
-
+    control.monitor_activity()
     # Запускаем блокировку
-    control.send_email(recent_email='epra11111@mail.ru',smtp_server='smtp.gmail.com',smtp_port=465)
+    control.send_email(recent_email='egor.valyukhov@mail.ru',smtp_server='smtp.gmail.com',smtp_port=465)
 
 
