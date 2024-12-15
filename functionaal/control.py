@@ -4,6 +4,7 @@ import psutil
 import os
 import time
 import smtplib
+from ipaddress import ip_address, ip_network
 from collections import defaultdict
 from email.mime.text import MIMEText
 from email.header import Header
@@ -30,7 +31,7 @@ from tkinter import filedialog
     #Метод показывающий историю за неделю 
     #метод удаления истории через определенноее время
 #Написать метод дающий опредленное время проведение за компьютером,а потом бы вылазила табличка просящая пароль ,иначе не продолжиать(tkinter,datetime,ctypes,pyautogui,psutil)это в приложении.
-# 7)Написить Графическое приложение с помщоью tkinter
+# 7)Написить Графическое приложение с помщоью tkinter сделано 
 # 8)Обеспечить логирование с помощью logging
 # 9)Сделать exe - файл и логотип на него(сгенерировать с помощью AI)
 ########################################################################################################################################################################################
@@ -45,12 +46,19 @@ class ParentControl:
         self.sender_email = "alexvolkov082004@gmail.com"
         self.sender_password = "taugsshrahdbzkto"
         self.active_processes = {}  # Для отслеживания активных процессов
+        self.log_file_internet = "site_visits.log"
         self.log_file = "activity_log.txt"  # Файл для записи активности пользователя
         self.system_processes = {
             "System Idle Process", "System", "Registry", "smss.exe",
             "csrss.exe", "wininit.exe", "services.exe", "lsass.exe",
             "svchost.exe", "explorer.exe", "SearchUI.exe"
         }
+        self.system_ips = {"127.0.0.1", "::1"}  # Локальные системные IP
+        self.private_ip_ranges = [
+            ("10.0.0.0", "10.255.255.255"),       # 10.0.0.0/8
+            ("172.16.0.0", "172.31.255.255"),     # 172.16.0.0/12
+            ("192.168.0.0", "192.168.255.255"),   # 192.168.0.0/16
+        ]
 
     def start_blocking(self) -> None:
         """
@@ -269,6 +277,86 @@ class ParentControl:
         with open(self.log_file, "a", encoding="utf-8") as log:
             log.write(log_entry)
     
+    def monitor_sites_console(self):
+        """
+        Мониторинг посещений сайтов с логированием уникальных IP-адресов (с записью в файл).
+        """
+        try:
+            print("Начинается мониторинг посещений сайтов...")
+
+            visited_ips = set()  # Множество для хранения уникальных IP
+            last_logged_time = {}  # Словарь для хранения времени последнего логирования каждого IP
+
+            # Определяем период между логами для одного IP
+            log_interval = timedelta(seconds=10)
+
+            # Фильтр для перехвата исходящего HTTP/HTTPS трафика
+            with pydivert.WinDivert("tcp and outbound and (tcp.DstPort == 80 or tcp.DstPort == 443)") as w, open(self.log_file_internet, "a", encoding="utf-8") as log:
+                for packet in w:
+                    try:
+                        ip_address = packet.dst_addr
+
+                        # Фильтрация системного и локального трафика
+                        if ip_address in self.system_ips or self.is_private_ip(ip_address):
+                            w.send(packet)  # Пропускаем системный трафик
+                            continue
+
+                        current_time = datetime.now()
+
+                        # Проверяем, был ли IP залогирован недавно
+                        if ip_address not in visited_ips or (current_time - last_logged_time.get(ip_address, datetime.min) > log_interval):
+                            log_entry = f"[{current_time}] Посещение сайта: IP {ip_address}\n"
+                            print(log_entry.strip())
+                            log.write(log_entry)  # Записываем в файл
+                            log.flush()  # Сохраняем изменения сразу
+                            visited_ips.add(ip_address)
+                            last_logged_time[ip_address] = current_time
+
+                    except Exception as log_error:
+                        print(f"Ошибка при логировании пакета: {log_error}")
+
+                    # Пропуск пакета
+                    w.send(packet)
+        except KeyboardInterrupt:
+            print("Мониторинг посещений сайтов завершён.")
+        except Exception as e:
+            print(f"Ошибка в процессе мониторинга: {e}")
+    
+    def is_private_ip(self, ip):
+        """
+        Проверяет, является ли IP адресом из частного диапазона.
+        :param ip: строка с IP-адресом.
+        :return: True, если IP из частного диапазона, иначе False.
+        """
+        try:
+            ip_obj = ip_address(ip)
+            for start, end in self.private_ip_ranges:
+                if ip_obj in ip_network(f"{start}/{end}"):
+                    return True
+            return False
+        except ValueError:
+            return False
+    
+    def get_visits_in_period(self, days: int) -> None:
+        """
+        Показывает посещения сайтов за указанный период времени из файла логов.
+        :param days: Количество дней для фильтрации.
+        """
+        try:
+            cutoff = datetime.now() - timedelta(days=days)
+            with open(self.log_file, "r", encoding="utf-8") as log:
+                lines = log.readlines()
+
+            print(f"Посещения сайтов за последние {days} дней:")
+            for line in lines:
+                try:
+                    timestamp = datetime.strptime(line.split("]")[0][1:], "%Y-%m-%d %H:%M:%S")
+                    if timestamp >= cutoff:
+                        print(line.strip())
+                except ValueError:
+                    continue
+        except FileNotFoundError:
+            print("Файл логов не найден. Начните мониторинг, чтобы создать его.")
 
 if __name__ == "__main__":
     control = ParentControl(user="admin", password="1234",check_interval = 5)
@@ -276,6 +364,8 @@ if __name__ == "__main__":
     #control.select_and_add_application()
     control.show_appplications()
     control.show_blocked_sites()
+    control.select_and_add_application()
+    control.block_applications()
     #control.send_email(recent_email='egor.valyukhov@mail.ru',smtp_server='smtp.gmail.com',smtp_port=465)
 
 
