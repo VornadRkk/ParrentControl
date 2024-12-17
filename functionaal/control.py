@@ -4,6 +4,7 @@ import psutil
 import os
 import time
 import smtplib
+import logging
 from ipaddress import ip_address, ip_network
 from collections import defaultdict
 from email.mime.text import MIMEText
@@ -12,29 +13,10 @@ from email.mime.multipart import MIMEMultipart
 from googleapiclient.discovery import build 
 from google_auth_oauthlib.flow import InstalledAppFlow
 from datetime import datetime, timedelta
+from logging.handlers import RotatingFileHandler
 import tkinter as tk
 from tkinter import filedialog
-###############################################################################################Task######################################################################################
-#И это все должно быть в классе
-#Сделанное:
-#Написать методы ограничивающие доступ к сайтам(Делаем с помощью библиотеки pydivert,почитать)
-        #написать сам метод ограничивающий доступ
-        # метод добавления сайта   
-        # метод удаления   сайта
-        # метод показывающий сайты находящиеся в блокировке      
-#Написать метод выключающий интернет(Делаем с помощью библиотеки pydivert,почитать)
-#Написать метод показывающий отчет об использовании приложений за день /неделю  Сделано
-#Написать метод отправляющий на почту или Тг сообщение о том что сеанс начался (smtplib для почт и надо еще написать telegramm бота чтобы на него приходили уведомления).
-#Не сделанное:
-# 5) Методы показывающие Историю поиска на ютубе за день/неделю и удаления ее через определенное время(Библиотеки:google-api-python-client, oauth2client)
-    #Метод показывающий историю за день
-    #Метод показывающий историю за неделю 
-    #метод удаления истории через определенноее время
-#Написать метод дающий опредленное время проведение за компьютером,а потом бы вылазила табличка просящая пароль ,иначе не продолжиать(tkinter,datetime,ctypes,pyautogui,psutil)это в приложении.
-# 7)Написить Графическое приложение с помщоью tkinter сделано 
-# 8)Обеспечить логирование с помощью logging
-# 9)Сделать exe - файл и логотип на него(сгенерировать с помощью AI)
-########################################################################################################################################################################################
+
 class ParentControl:        
     def __init__(self, user: str, password: str, check_interval: int) -> None:
         self.user = user
@@ -60,34 +42,52 @@ class ParentControl:
             ("192.168.0.0", "192.168.255.255"),   # 192.168.0.0/16
         ]
 
+        # Настройка логирования
+        log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        log_file_handler = RotatingFileHandler(
+            "parent_control.log", maxBytes=1_000_000, backupCount=3
+        )
+        log_file_handler.setFormatter(log_formatter)
+        log_file_handler.setLevel(logging.DEBUG)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(log_formatter)
+        console_handler.setLevel(logging.INFO)
+
+        logging.basicConfig(
+            level=logging.DEBUG,
+            handlers=[log_file_handler, console_handler]
+        )
+
+        logging.info("Инициализация ParentControl.")
+
     def start_blocking(self) -> None:
         """
         Запускает процесс блокировки указанных сайтов, преобразуя их в IP-адреса.
         """
         try:
-            # Преобразуем домены в IP-адреса
             blocked_ips = set()
             for site in self.blocked_sites:
                 try:
                     ip = socket.gethostbyname(site)
                     blocked_ips.add(ip)
-                    print(f"Сайт {site} преобразован в IP {ip} для блокировки.")
+                    logging.info(f"Сайт {site} преобразован в IP {ip} для блокировки.")
                 except socket.gaierror:
-                    print(f"Ошибка: '{site}' не является валидным доменным именем. Пропускаем.")
+                    logging.warning(f"Ошибка: '{site}' не является валидным доменным именем. Пропускаем.")
             if not blocked_ips:
-                print("Нет валидных IP-адресов для блокировки. Завершаем.")
+                logging.warning("Нет валидных IP-адресов для блокировки. Завершаем.")
                 return
-            print(f"Заблокированные IP: {blocked_ips}")
+
+            logging.info(f"Заблокированные IP: {blocked_ips}")
             with pydivert.WinDivert("tcp and outbound") as w:
-                print("Начинается блокировка...")
+                logging.info("Начинается блокировка...")
                 for packet in w:
                     if packet.dst_addr in blocked_ips:
-                        print(f"Блокируется доступ к IP: {packet.dst_addr}")
-                        continue  # Не пропускаем пакет
-
+                        logging.debug(f"Блокируется доступ к IP: {packet.dst_addr}")
+                        continue  # Не пропускаем пакет 
                     w.send(packet)  # Пропускаем остальные пакеты
         except Exception as e:
-            print(f"Ошибка в процессе блокировки: {e}")
+            logging.error(f"Ошибка в процессе блокировки: {e}")
 
     def add_site(self, site: str) -> None:
         """
@@ -95,9 +95,9 @@ class ParentControl:
         """
         if site not in self.blocked_sites:
             self.blocked_sites.add(site)
-            print(f"Сайт {site} добавлен в список блокировки.")
+            logging.info(f"Сайт {site} добавлен в список блокировки.")
         else:
-            print(f"Сайт {site} уже находится в списке блокировки.")
+            logging.warning(f"Сайт {site} уже находится в списке блокировки.")
 
     def remove_site(self, site: str) -> None:
         """
@@ -105,170 +105,161 @@ class ParentControl:
         """
         if site in self.blocked_sites:
             self.blocked_sites.remove(site)
-            print(f"Сайт {site} удалён из списка блокировки.")
+            logging.info(f"Сайт {site} удалён из списка блокировки.")
         else:
-            print(f"Сайт {site} отсутствует в списке блокировки.")
+            logging.warning(f"Сайт {site} отсутствует в списке блокировки.")
 
     def show_blocked_sites(self) -> None:
         """
         Показывает текущий список заблокированных сайтов.
         """
         if not self.blocked_sites:
-            print("Список заблокированных сайтов пуст.")
+            logging.info("Список заблокированных сайтов пуст.")
         else:
-            print("Заблокированные сайты:")
+            logging.info("Заблокированные сайты:")
             for site in self.blocked_sites:
-                print(f"- {site}")
+                logging.info(f"- {site}")
 
     def disable_internet(self) -> None:
         """
         Отключает интернет, блокируя весь сетевой трафик.
         """
         if self.internet_disabled:
-            print("Интернет уже отключён.")
+            logging.warning("Интернет уже отключён.")
             return
 
         self.internet_disabled = True
-        print("Интернет отключён. Перехватываю все пакеты...")
-
+        logging.info("Интернет отключён. Перехватываю все пакеты...")
         try:
             with pydivert.WinDivert("true") as w:  # Перехват всех пакетов
                 for packet in w:
                     if not self.internet_disabled:
-                        break  # Если интернет включён, прекращаем блокировку
-                    # Пакеты просто игнорируются
+                        break
         except Exception as e:
-            print(f"Ошибка при отключении интернета: {e}")
+            logging.error(f"Ошибка при отключении интернета: {e}")
 
     def enable_internet(self) -> None:
         """
         Включает интернет, разблокируя сетевой трафик.
         """
         if not self.internet_disabled:
-            print("Интернет уже включён.")
+            logging.warning("Интернет уже включён.")
             return
 
         self.internet_disabled = False
-        print("Интернет включён.")
+        logging.info("Интернет включён.")
     
-    def add_applications(self,application:str)->None:
+    def add_applications(self, application: str) -> None:
+        """
+        Добавляет приложение в список блокировки.
+        """
         if application not in self.blocked_applications:
             self.blocked_applications.add(application)
-            print(f"Приложение {application} добавлено в список блокировки.")
+            logging.info(f"Приложение {application} добавлено в список блокировки.")
         else:
-            print(f"Приложение {application} уже есть в списки блокировки")
+            logging.warning(f"Приложение {application} уже есть в списке блокировки.")
 
     def select_and_add_application(self) -> None:
         """
         Открывает окно выбора файла и добавляет выбранное приложение в список блокировки.
         """
-        # Создаём окно, но не отображаем его
-        root = tk.Tk()
-        root.withdraw()  # Скрываем основное окно
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            file_path = filedialog.askopenfilename(
+                title="Выберите приложение для блокировки",
+                filetypes=[("Программы", "*.exe"), ("Все файлы", "*.*")]
+            )
+            if file_path:
+                app_name = os.path.basename(file_path)
+                self.blocked_applications.add(app_name)
+                logging.info(f"Приложение {app_name} добавлено в список блокировки.")
+            else:
+                logging.info("Выбор файла отменён пользователем.")
+        except Exception as e:
+            logging.error(f"Ошибка при добавлении приложения: {e}")
 
-        # Открываем диалог выбора файла
-        file_path = filedialog.askopenfilename(
-            title="Выберите приложение для блокировки",
-            filetypes=[("Программы", "*.exe"), ("Все файлы", "*.*")]
-        )
-
-        if file_path:  # Если файл выбран
-            app_name = os.path.basename(file_path)  # Получаем имя файла
-            self.add_applications(app_name)
-        else:
-            print("Файл не выбран.")
-
-    def remove_applications(self,application:str)->None:
+    def remove_applications(self, application: str) -> None:
+        """
+        Удаляет приложение из списка блокировки.
+        """
         if application in self.blocked_applications:
             self.blocked_applications.remove(application)
-            print(f"Приложение {application} удалено из списка блокировки")
+            logging.info(f"Приложение {application} удалено из списка блокировки.")
         else:
-            print(f"Приложения {application} нет в списке блокировки")
+            logging.warning(f"Приложение {application} нет в списке блокировки.")
     
-    def show_appplications(self)->None:
+    def show_appplications(self) -> None:
+        """
+        Показывает список заблокированных приложений.
+        """
         if self.blocked_applications:
-            print(f"Список заблокированных приложений:")
-            print(f"{self.blocked_applications}")
+            logging.info(f"Заблокированные приложения: {', '.join(self.blocked_applications)}")
         else:
-            print(f"Заблокированных приложений нет")
+            logging.info("Список заблокированных приложений пуст.")
     
     def block_applications(self) -> None:
         """
         Запускает мониторинг процессов и завершает указанные приложения.
         """
-        print("Начинается мониторинг приложений...")
-        while True:
-            for process in psutil.process_iter(['pid', 'name']):
-                try:
-                    if process.info['name'] in self.blocked_applications:
-                        print(f"Обнаружено приложение: {process.info['name']} (PID: {process.info['pid']}). Завершение...")
-                        os.kill(process.info['pid'], 9)  # Принудительное завершение
-                        print(f"Приложение {process.info['name']} завершено.")
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue  
-            time.sleep(self.check_interval)
+        try:
+            logging.info("Запуск мониторинга для блокировки приложений.")
+            while True:
+                for process in psutil.process_iter(['pid', 'name']):
+                    try:
+                        if process.info['name'] in self.blocked_applications:
+                            os.kill(process.info['pid'], 9)
+                            logging.info(f"Приложение {process.info['name']} (PID: {process.info['pid']}) завершено.")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                time.sleep(self.check_interval)
+        except KeyboardInterrupt:
+            logging.info("Мониторинг блокировки приложений завершён.")
+        except Exception as e:
+            logging.error(f"Ошибка в процессе блокировки приложений: {e}")
 
-    def send_email(self,recent_email:str,smtp_server:str,smtp_port:int)->None:
+    def send_email(self, recipient_email: str, smtp_server: str, smtp_port: int) -> None:
+        """
+        Отправляет уведомление о начале сеанса на указанную почту.
+        """
         try:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             subject = "Уведомление: Начало сеанса"
             body = f"Сеанс пользователя начался в {now}."
             message = MIMEMultipart()
             message['From'] = self.sender_email
-            message['To'] = recent_email
+            message['To'] = recipient_email
             message['Subject'] = subject
             message.attach(MIMEText(body, 'plain'))
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-            server.login(self.sender_email, self.sender_password)
-            server.send_message(message)
-            server.quit()
-            print("Уведомление успешно отправлено.")
+            with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(message)
+                logging.info(f"Уведомление успешно отправлено на {recipient_email}.")
         except Exception as e:
-            print(f"Ошибка при отправке уведомления: {e}")
+            logging.error(f"Ошибка при отправке уведомления: {e}")
 
     def monitor_activity(self) -> None:
         """
         Запускает мониторинг активности пользователя.
         """
         try:
-            print("Начинается мониторинг активности пользователя...")
+            logging.info("Начинается мониторинг активности пользователя...")
             while True:
                 current_processes = {p.pid: p.info for p in psutil.process_iter(['pid', 'name', 'create_time'])}
-
-                # Проверяем новые процессы
                 for pid, info in current_processes.items():
                     if pid not in self.active_processes and info['name'] not in self.system_processes:
                         self.active_processes[pid] = info
                         self.log_process_start(info)
-
-                # Проверяем завершённые процессы
                 ended_processes = set(self.active_processes.keys()) - set(current_processes.keys())
                 for pid in ended_processes:
                     if self.active_processes[pid]['name'] not in self.system_processes:
                         self.log_process_end(self.active_processes[pid])
                     del self.active_processes[pid]
-
-                time.sleep(self.check_interval)  # Ждём заданный интервал
+                time.sleep(self.check_interval)
         except KeyboardInterrupt:
-            print("Мониторинг завершён.")
-
-    def log_process_start(self, info) -> None:
-        """
-        Логирует запуск нового процесса.
-        """
-        start_time = datetime.fromtimestamp(info['create_time']).strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{start_time}] Запуск: {info['name']} (PID: {info['pid']})\n"
-        print(log_entry.strip())
-        self.write_to_log(log_entry)
-
-    def log_process_end(self, info) -> None:
-        """
-        Логирует завершение процесса.
-        """
-        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{end_time}] Завершение: {info['name']} (PID: {info['pid']})\n"
-        print(log_entry.strip())
-        self.write_to_log(log_entry)
+            logging.info("Мониторинг завершён.")
+        except Exception as e:
+            logging.error(f"Ошибка в процессе мониторинга: {e}")
 
     def write_to_log(self, log_entry) -> None:
         """
@@ -282,47 +273,34 @@ class ParentControl:
         Мониторинг посещений сайтов с логированием уникальных IP-адресов (с записью в файл).
         """
         try:
-            print("Начинается мониторинг посещений сайтов...")
-
-            visited_ips = set()  # Множество для хранения уникальных IP
-            last_logged_time = {}  # Словарь для хранения времени последнего логирования каждого IP
-
-            # Определяем период между логами для одного IP
+            logging.info("Начинается мониторинг посещений сайтов...")
+            visited_ips = set()
+            last_logged_time = {}
             log_interval = timedelta(seconds=10)
 
-            # Фильтр для перехвата исходящего HTTP/HTTPS трафика
-            with pydivert.WinDivert("tcp and outbound and (tcp.DstPort == 80 or tcp.DstPort == 443)") as w, open(self.log_file_internet, "a", encoding="utf-8") as log:
+            with pydivert.WinDivert("tcp and outbound and (tcp.DstPort == 80 or tcp.DstPort == 443)") as w:
                 for packet in w:
                     try:
                         ip_address = packet.dst_addr
-
-                        # Фильтрация системного и локального трафика
                         if ip_address in self.system_ips or self.is_private_ip(ip_address):
-                            w.send(packet)  # Пропускаем системный трафик
+                            w.send(packet)
                             continue
 
                         current_time = datetime.now()
-
-                        # Проверяем, был ли IP залогирован недавно
                         if ip_address not in visited_ips or (current_time - last_logged_time.get(ip_address, datetime.min) > log_interval):
-                            log_entry = f"[{current_time}] Посещение сайта: IP {ip_address}\n"
-                            print(log_entry.strip())
-                            log.write(log_entry)  # Записываем в файл
-                            log.flush()  # Сохраняем изменения сразу
+                            logging.info(f"Посещение сайта: IP {ip_address}")
                             visited_ips.add(ip_address)
                             last_logged_time[ip_address] = current_time
 
                     except Exception as log_error:
-                        print(f"Ошибка при логировании пакета: {log_error}")
-
-                    # Пропуск пакета
+                        logging.error(f"Ошибка при логировании пакета: {log_error}")
                     w.send(packet)
         except KeyboardInterrupt:
-            print("Мониторинг посещений сайтов завершён.")
+            logging.info("Мониторинг посещений сайтов завершён.")
         except Exception as e:
-            print(f"Ошибка в процессе мониторинга: {e}")
+            logging.error(f"Ошибка в процессе мониторинга: {e}")
     
-    def is_private_ip(self, ip):
+    def is_private_ip(self, ip: str) -> bool:
         """
         Проверяет, является ли IP адресом из частного диапазона.
         :param ip: строка с IP-адресом.
@@ -332,9 +310,12 @@ class ParentControl:
             ip_obj = ip_address(ip)
             for start, end in self.private_ip_ranges:
                 if ip_obj in ip_network(f"{start}/{end}"):
+                    logging.info(f"IP {ip} является частным.")
                     return True
+            logging.info(f"IP {ip} не является частным.")
             return False
         except ValueError:
+            logging.error(f"Некорректный IP-адрес: {ip}")
             return False
     
     def get_visits_in_period(self, days: int) -> None:
@@ -347,16 +328,37 @@ class ParentControl:
             with open(self.log_file, "r", encoding="utf-8") as log:
                 lines = log.readlines()
 
+            logging.info(f"Получение посещений сайтов за последние {days} дней.")
             print(f"Посещения сайтов за последние {days} дней:")
+
             for line in lines:
                 try:
                     timestamp = datetime.strptime(line.split("]")[0][1:], "%Y-%m-%d %H:%M:%S")
                     if timestamp >= cutoff:
                         print(line.strip())
+                        logging.info(f"Запись из лога: {line.strip()}")
                 except ValueError:
+                    logging.warning(f"Некорректный формат даты в строке: {line.strip()}")
                     continue
         except FileNotFoundError:
+            logging.error("Файл логов не найден. Начните мониторинг, чтобы создать его.")
             print("Файл логов не найден. Начните мониторинг, чтобы создать его.")
+    
+    def log_process_start(self, info) -> None:
+        """
+        Логирует запуск нового процесса.
+        """
+        start_time = datetime.fromtimestamp(info['create_time']).strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{start_time}] Запуск: {info['name']} (PID: {info['pid']})"
+        logging.info(log_entry)
+
+    def log_process_end(self, info) -> None:
+        """
+        Логирует завершение процесса.
+        """
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{end_time}] Завершение: {info['name']} (PID: {info['pid']})"
+        logging.info(log_entry)
 
 if __name__ == "__main__":
     control = ParentControl(user="admin", password="1234",check_interval = 5)
