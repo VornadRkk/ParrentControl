@@ -1,0 +1,16 @@
+{
+    "child_profiles": {
+        "Саша": {
+            "age": 12,
+            "password": "123",
+            "blocked_sites": [],
+            "blocked_apps": [
+                "ida64.exe"
+            ],
+            "daily_limit": 1,
+            "used_time": 1,
+            "activity_logs": []
+        }
+    },
+    "admin_password": "123"
+}
